@@ -9,9 +9,9 @@ import os
 # ====================================================================
 # CONFIGURACIÓN GENERAL
 # ====================================================================
-MODE = "JETSON"  # "PC" o "JETSON"
-#SOURCE = "videos_test/highway23.mp4"  # "camera" o ruta del archivo
-SOURCE = "highway23.mp4"
+MODE = "PC"  # "PC" o "JETSON"
+SOURCE = "videos_test/highway23.mp4"  # "camera" o ruta del archivo
+#SOURCE = "highway23.mp4"
 
 FRAME_WIDTH = 1280
 FRAME_HEIGHT = 720
