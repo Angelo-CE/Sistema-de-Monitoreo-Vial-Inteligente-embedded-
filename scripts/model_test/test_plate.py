@@ -14,7 +14,7 @@ def main(path):
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     # Cargar modelo 
-    model_path = "models/1.0/best.pt"
+    model_path = "models/3.0/best.pt"
 
     try:
         model_plates = YOLO(model_path)
@@ -153,6 +153,6 @@ def main(path):
 
 if __name__ == "__main__":
 
-    video_path = "videos_test/highway23.mp4"
+    video_path = "videos_test/highway94.mp4"
 
     main(video_path)

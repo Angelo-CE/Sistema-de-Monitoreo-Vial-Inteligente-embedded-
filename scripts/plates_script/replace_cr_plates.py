@@ -9,14 +9,15 @@ from PIL import Image, ImageDraw, ImageFont
 # ====================================================================
 # CONFIGURACIÓN DE RUTAS Y PARÁMETROS
 # ====================================================================
-CCPD_DIR = "./datasets/CCPD2019/ccpd_blur"
+CCPD_DIR = "./datasets/CCPD2019/ccpd_np"
+#CCPD_DIR = "./fotos_reales_ccpd/images"
 TEMPLATES_DIR = "./scripts/plates_script/cr_plates_template"
-OUTPUT_DIR = "./output_dataset_plates_cr_blur"
+OUTPUT_DIR = "./ccpd_cr/ccpd_np"
 
 FONT_MAIN_PATH = os.path.join(TEMPLATES_DIR, "roadgeek-2005-engschrift.ttf")
 FONT_BAR_PATH = os.path.join(TEMPLATES_DIR, "biosolid-regular.ttf")
 
-NUM_SAMPLES = 10
+NUM_SAMPLES = 500
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 

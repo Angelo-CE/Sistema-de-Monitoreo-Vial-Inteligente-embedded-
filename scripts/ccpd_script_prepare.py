@@ -1,310 +1,178 @@
 #!/usr/bin/env python3
-
 import os
 import re
 import random
 import shutil
 from pathlib import Path
-
 import cv2
 
+# ============================================================
+# CONFIGURACIÓN DE RUTAS Y PARÁMETROS
+# ============================================================
+CCPD_CR_DIR = Path("./ccpd_cr")       # Carpeta origen con las subcarpetas
+OUTPUT_DIR = Path("./dataset_yolo_cr") # Carpeta destino formateada para YOLO
 
-
-#config
-CCPD_BASE = Path("./datasets/CCPD2019/ccpd_base")  # Change this to your CCPD base path
-OUTPUT_DIR = Path("./ccpd_yolo")
-
-TOTAL_IMAGES = 10_000
 TRAIN_RATIO = 0.80
 SEED = 42
 
-# File extensions accepted
 EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
+SUBFOLDERS = [
+    "ccpd_base",
+    "ccpd_blur",
+    "ccpd_tilt",
+    "ccpd_db",
+    "ccpd_fn",
+    "ccpd_np",
+    "ccpd_irl"
+]
 
-# ============================================================
-# DIRECTORIES
-# ============================================================
-
+# Directorios YOLO
 TRAIN_IMAGES = OUTPUT_DIR / "images" / "train"
 VAL_IMAGES = OUTPUT_DIR / "images" / "val"
-
 TRAIN_LABELS = OUTPUT_DIR / "labels" / "train"
 VAL_LABELS = OUTPUT_DIR / "labels" / "val"
 
 
 def create_directories():
-    for directory in [
-        TRAIN_IMAGES,
-        VAL_IMAGES,
-        TRAIN_LABELS,
-        VAL_LABELS,
-    ]:
+    for directory in [TRAIN_IMAGES, VAL_IMAGES, TRAIN_LABELS, VAL_LABELS]:
         directory.mkdir(parents=True, exist_ok=True)
 
 
-
-# CCPD BBOX PARSER
-
 def parse_bbox(filename):
-    """
-    CCPD filename example:
-
-    025-95_113-154&383_386&473-386&473_177&454_154&383_363&402-...
-
-    The third field contains:
-
-        x1&y1_x2&y2
-
-    Returns:
-        x1, y1, x2, y2
-    """
-
+    """Extrae la caja envolvente real leyendo directamente los 4 vértices (bloque 3)."""
     parts = filename.split("-")
-
     if len(parts) < 4:
-        raise ValueError(
-            "Unexpected CCPD filename format: {}".format(filename)
-        )
+        raise ValueError(f"Formato no reconocido: {filename}")
 
-    bbox_part = parts[2]
+    # Forzar la lectura de la parte 3 (vértices reales rb_lb_lt_rt)
+    vertices_raw = parts[3].split("_")
+    if len(vertices_raw) == 4:  
+        pts = [list(map(int, pt.split("&"))) for pt in vertices_raw]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return min(xs), min(ys), max(xs), max(ys)
 
-    match = re.match(
-        r"(\d+)&(\d+)_(\d+)&(\d+)",
-        bbox_part
-    )
-
-    if match is None:
-        raise ValueError(
-            "Could not parse bbox from filename: {}".format(filename)
-        )
-
-    x1 = int(match.group(1))
-    y1 = int(match.group(2))
-    x2 = int(match.group(3))
-    y2 = int(match.group(4))
-
-    return x1, y1, x2, y2
-
-
-
-# YOLO CONVERSION
+    raise ValueError(f"Imposible parsear vértices en: {filename}")
 
 
 def bbox_to_yolo(x1, y1, x2, y2, width, height):
-    """
-    Convert pixel bbox to YOLO format:
-
-        class x_center y_center bbox_width bbox_height
-
-    All coordinates normalized to [0, 1].
-    """
-
-    # Safety checks
+    """Convierte píxeles a formato YOLO normalizado (cx, cy, w, h)."""
     x1 = max(0, min(x1, width - 1))
     x2 = max(0, min(x2, width - 1))
     y1 = max(0, min(y1, height - 1))
     y2 = max(0, min(y2, height - 1))
 
-    bbox_width = x2 - x1
-    bbox_height = y2 - y1
+    bw = x2 - x1
+    bh = y2 - y1
+    cx = x1 + bw / 2.0
+    cy = y1 + bh / 2.0
 
-    x_center = x1 + bbox_width / 2.0
-    y_center = y1 + bbox_height / 2.0
-
-    return (
-        x_center / width,
-        y_center / height,
-        bbox_width / width,
-        bbox_height / height,
-    )
+    return cx / width, cy / height, bw / width, bh / height
 
 
 
-# PROCESS IMAGE
+def process_image(image_path, folder_name, dest_img_dir, dest_lbl_dir):
+    new_stem = f"{folder_name}_{image_path.stem}"
+    dest_img = dest_img_dir / f"{new_stem}{image_path.suffix}"
+    dest_lbl = dest_lbl_dir / f"{new_stem}.txt"
 
+    # Prioridad 1: Si existe el archivo .txt generado por el etiquetador interactivo
+    existing_txt = image_path.with_suffix(".txt")
+    if existing_txt.exists():
+        shutil.copy2(image_path, dest_img)
+        shutil.copy2(existing_txt, dest_lbl)
+        return
 
-def process_image(image_path, destination_image_dir, destination_label_dir):
-    """
-    Copy image and generate corresponding YOLO label.
-    """
+    # Prioridad 2: Si es muestra negativa
+    if folder_name == "ccpd_np":
+        shutil.copy2(image_path, dest_img)
+        dest_lbl.touch()
+        return
 
+    # Prioridad 3: Parseo corregido por vértices
     image = cv2.imread(str(image_path))
-
     if image is None:
-        raise RuntimeError(
-            "Could not read image: {}".format(image_path)
-        )
+        return
 
-    height, width = image.shape[:2]
-
+    h, w = image.shape[:2]
     x1, y1, x2, y2 = parse_bbox(image_path.name)
 
-    (
-        x_center,
-        y_center,
-        bbox_width,
-        bbox_height,
-    ) = bbox_to_yolo(
-        x1,
-        y1,
-        x2,
-        y2,
-        width,
-        height,
-    )
+    # Convertir a YOLO
+    cx = ((x1 + x2) / 2.0) / w
+    cy = ((y1 + y2) / 2.0) / h
+    bw = (x2 - x1) / w
+    bh = (y2 - y1) / h
 
-    # Copy image
-    destination_image = (
-        destination_image_dir / image_path.name
-    )
-
-    shutil.copy2(
-        image_path,
-        destination_image
-    )
-
-    # Create YOLO label
-    label_path = (
-        destination_label_dir /
-        (image_path.stem + ".txt")
-    )
-
-    with open(label_path, "w") as f:
-        # CCPD has one license plate per image.
-        # Class 0 = license_plate
-        f.write(
-            "0 {:.6f} {:.6f} {:.6f} {:.6f}\n".format(
-                x_center,
-                y_center,
-                bbox_width,
-                bbox_height,
-            )
-        )
-
-
-# ============================================================
-# MAIN
-# ============================================================
+    shutil.copy2(image_path, dest_img)
+    with open(dest_lbl, "w") as f:
+        f.write(f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n")
 
 def main():
-
-    print("CCPD base:")
-    print(CCPD_BASE)
-
-    if not CCPD_BASE.exists():
-        raise FileNotFoundError(
-            "CCPD base directory does not exist:\n{}".format(
-                CCPD_BASE
-            )
-        )
+    if not CCPD_CR_DIR.exists():
+        raise FileNotFoundError(f"No existe la carpeta origen: {CCPD_CR_DIR.resolve()}")
 
     create_directories()
-
-    print("\nSearching images...")
-
-    images = [
-        p for p in CCPD_BASE.rglob("*")
-        if p.is_file() and
-        p.suffix.lower() in EXTENSIONS
-    ]
-
-    print("Found {} images.".format(len(images)))
-
-    if len(images) < TOTAL_IMAGES:
-        raise RuntimeError(
-            "CCPD base contains fewer than {} images.".format(
-                TOTAL_IMAGES
-            )
-        )
-
-    # Reproducible selection
     random.seed(SEED)
 
-    selected = random.sample(
-        images,
-        TOTAL_IMAGES
-    )
+    all_train, all_val = [], []
 
-    random.shuffle(selected)
+    print("========================================")
+    print("ESCANEO Y DIVISIÓN DE SUB-DATASETS")
+    print("========================================")
 
-    train_count = int(
-        TOTAL_IMAGES * TRAIN_RATIO
-    )
+    for folder in SUBFOLDERS:
+        folder_path = CCPD_CR_DIR / folder
+        if not folder_path.exists():
+            print(f"[SKIP] Subcarpeta no encontrada: {folder}")
+            continue
 
-    train_images = selected[:train_count]
-    val_images = selected[train_count:]
+        images = [p for p in folder_path.glob("*") if p.is_file() and p.suffix.lower() in EXTENSIONS]
+        random.shuffle(images)
 
-    print("\nDataset split:")
-    print("Train:", len(train_images))
-    print("Val:  ", len(val_images))
+        train_count = int(len(images) * TRAIN_RATIO)
+        train_imgs = images[:train_count]
+        val_imgs = images[train_count:]
 
- 
-    # TRAIN
-    print("\nProcessing training set...")
+        print(f"-> {folder:15s}: {len(images):5d} total | Train: {len(train_imgs):5d} | Val: {len(val_imgs):5d}")
 
-    for i, image_path in enumerate(train_images, 1):
+        for img in train_imgs:
+            all_train.append((img, folder))
+        for img in val_imgs:
+            all_val.append((img, folder))
 
-        process_image(
-            image_path,
-            TRAIN_IMAGES,
-            TRAIN_LABELS
-        )
+    print("\n========================================")
+    print("PROCESANDO ARCHIVOS PARA YOLO")
+    print("========================================")
 
+    print(f"Procesando Entrenamiento ({len(all_train)} imágenes)...")
+    for i, (img_path, folder_name) in enumerate(all_train, 1):
+        process_image(img_path, folder_name, TRAIN_IMAGES, TRAIN_LABELS)
+        if i % 1000 == 0:
+            print(f"Train: {i}/{len(all_train)}")
+
+    print(f"\nProcesando Validación ({len(all_val)} imágenes)...")
+    for i, (img_path, folder_name) in enumerate(all_val, 1):
+        process_image(img_path, folder_name, VAL_IMAGES, VAL_LABELS)
         if i % 500 == 0:
-            print(
-                "Train: {}/{}".format(
-                    i,
-                    len(train_images)
-                )
-            )
-
-   
-    # VALIDATION
-
-
-    print("\nProcessing validation set...")
-
-    for i, image_path in enumerate(val_images, 1):
-
-        process_image(
-            image_path,
-            VAL_IMAGES,
-            VAL_LABELS
-        )
-
-        if i % 500 == 0:
-            print(
-                "Val: {}/{}".format(
-                    i,
-                    len(val_images)
-                )
-            )
+            print(f"Val: {i}/{len(all_val)}")
 
     # --------------------------------------------------------
-    # DATASET YAML
+    # GENERACIÓN DEL ARCHIVO DATA.YAML
     # --------------------------------------------------------
-
     yaml_path = OUTPUT_DIR / "data.yaml"
-
     with open(yaml_path, "w") as f:
-        f.write(
-            "path: {}\n".format(
-                OUTPUT_DIR.resolve()
-            )
-        )
+        f.write(f"path: {OUTPUT_DIR.resolve()}\n")
         f.write("train: images/train\n")
-        f.write("val: images/val\n")
-        f.write("\n")
+        f.write("val: images/val\n\n")
         f.write("names:\n")
         f.write("  0: license_plate\n")
 
     print("\n========================================")
-    print("Dataset successfully created")
+    print("DATASET CREADO CON ÉXITO")
     print("========================================")
-
-    print("Output:", OUTPUT_DIR.resolve())
-    print("YAML:", yaml_path.resolve())
+    print("Carpeta Destino:", OUTPUT_DIR.resolve())
+    print("Archivo YAML:   ", yaml_path.resolve())
 
 
 if __name__ == "__main__":
