@@ -9,8 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 # ====================================================================
 # CONFIGURACIÓN DE RUTAS Y PARÁMETROS
 # ====================================================================
-CCPD_DIR = "./datasets/CCPD2019/ccpd_np"
-#CCPD_DIR = "./fotos_reales_ccpd/images"
+CCPD_DIR = "./datasets/CCPD2019/ccpd_base"
 TEMPLATES_DIR = "./scripts/plates_script/cr_plates_template"
 OUTPUT_DIR = "./ccpd_cr/ccpd_np"
 
