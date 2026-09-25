@@ -176,10 +176,10 @@ def main():
 
                 # --- LÓGICA DE ESTADOS ---
                 if vehicle_states[track_id] == 0:
-                    if MIN_PLATE_WIDTH <= raw_w <= MAX_PLATE_WIDTH:
+                    #if MIN_PLATE_WIDTH <= raw_w <= MAX_PLATE_WIDTH:
                         
                         # APLICAR PADDING SOLO PARA EL RECORTE DEL OCR
-                        pad_x = int(raw_w * 0.1)
+                        pad_x = int(raw_w * 0.08)
                         pad_y = int(raw_h * 0.08)
                         crop_x1 = max(0, x1 - pad_x)
                         crop_y1 = max(0, y1 - pad_y)
@@ -192,16 +192,16 @@ def main():
                         plate_text = run_lprnet_inference(crop, lprnet_model, device)
 
                         # Validación estricta: Placas CR tienen mínimo 5 o 6 caracteres útiles
-                        if len(plate_text) >= 5:
-                            track_ocr_final[track_id] = plate_text
-                            vehicle_states[track_id] = 1  # ÉXITO
-                        else:
+                        #if len(plate_text) >= 5:
+                        track_ocr_final[track_id] = plate_text
+                        vehicle_states[track_id] = 1  # ÉXITO
+                        #else:
                             # Sigue en estado 0, intentará en el siguiente frame si no sale de la zona
-                            pass
+                            #pass
                             
-                    elif raw_w > MAX_PLATE_WIDTH:
+                    #elif raw_w > MAX_PLATE_WIDTH:
                         # Se acercó mucho y cruzó el límite sin una lectura exitosa
-                        vehicle_states[track_id] = 2  # DESCARTADO
+                        #vehicle_states[track_id] = 2  # DESCARTADO
 
                 # --- RENDERIZADO VISUAL ---
                 if vehicle_states[track_id] == 1:
